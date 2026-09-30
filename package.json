@@ -1,7 +1,7 @@
 {
   "name": "dsh-true-delete",
   "version": "0.2.0",
-  "description": "DSH 桌面端插件：给「已归档」的会话在右键菜单里加一个删除项，二次确认后删除它在本机的日志与缓存文件。",
+  "description": "DSH plugin: delete an archived session's local files — transcript, projection cache, and its subagent sessions — after a two-step confirmation.",
   "keywords": [
     "dsh",
     "dsh-plugin",
@@ -12,21 +12,28 @@
   ],
   "type": "module",
   "main": "lib/index.js",
+  "icon": "./icon.svg",
   "license": "MIT",
   "files": [
     "lib",
+    "locale",
     "cordis.patch.yml",
-    "README.md"
+    "icon.svg",
+    "README.md",
+    "README.zh.md"
   ],
   "scripts": {
-    "test": "node test/host.test.mjs && node test/client.test.mjs",
+    "test": "node tools/check-docs.mjs && node test/host.test.mjs && node test/client.test.mjs",
     "test:host": "node test/host.test.mjs",
-    "test:client": "node test/client.test.mjs"
+    "test:client": "node test/client.test.mjs",
+    "test:docs": "node tools/check-docs.mjs"
   },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./icon.svg": "./icon.svg",
     "./package.json": "./package.json"
   },
   "dsh": {

@@ -1,146 +1,160 @@
-# DSH-True-Delete
+---
+description: "The DSH plugin that gives archived sessions a true delete — a two-step-confirmed removal of the session's local transcript, projection cache, and subagent sessions, plus the registry and live-session cleanup that makes the row leave the sidebar; for Harness users who archive sessions and for maintainers of this plugin."
+kind: "package-reference"
+---
 
-> 包名 `dsh-true-delete`；仓库目录名 `DSH-True-Delete`（DSH 客户端模块 id 必须等于包名，所以两者不同名）。
+# dsh-true-delete
 
-给 DSH 桌面端加一个**真正删掉**已归档会话的按钮：在侧边栏**已归档**那一行的 `…` 菜单里，
-「重命名 / 分叉会话 / 取消归档」下面多一行 **删除本地文件…**；点开先列出这台电脑上到底会删哪些文件、
-共多大，确认之后才真的删，删完弹一个结果提示，那一行随之从侧边栏消失。
+English | [中文](README.zh.md)
 
-- 只对**已归档**的行出现（未归档的行看不到这一项）。
-- 宿主端会再校验一次：未归档的 id 一律拒绝；还有正在运行的工作也拒绝。
-- 删除范围仅限该会话自己的数据：会话日志目录 + 投影缓存（含它名下不出现在侧边栏里的子代理会话）。
-- `~/.dsh/attachments/**`、`~/.dsh/cache/**`、其他会话、legacy 的 `session_projcache.json` 一律不动。
+## Summary
 
-## 它会删掉什么
+`dsh-true-delete` adds one destructive action the shipped Harness Web sidebar does not have: **Delete local files…** on an archived session row. Choosing it asks the Host what would actually be removed, shows the exact paths and sizes, and only after explicit confirmation deletes the session's transcript directory (every stored format generation plus crash leftovers) and its projection-cache record, together with any subagent sessions the parent owns. It then drops the id from the workspace registry (archive set, pin set, and workspace membership), releases the live in-memory session the Host would otherwise keep listing, and asks the page to re-pull the session list — so the row leaves the sidebar instead of lingering as a ghost. It is a plugin rather than a fork: the Host half is an ordinary Loader bundle exposing three loopback routes, and the browser half is a hand-written `__ModuleLoader__` bundle with no build step. Content-addressed attachments, the request-image cache, other sessions, and the legacy `session_projcache.json` are never touched.
 
-| 目标 | 路径 | 说明 |
-|---|---|---|
-| 会话日志 | `<DSH_HOME>/sessions/<编码后的 cwd>/<sessionId>/` | 整个目录：`session[.vN].jsonl.zstd` 各代 + 崩溃残留的 `*.tmp` |
-| 投影缓存 | `<DSH_HOME>/storages/session_projcache/sessions/<sessionId>.json` | 标题 / 统计 / 待办等派生数据；坏记录的 `.bak.*` 一并清掉 |
-| 子代理会话 | 同上两条，id 来自父会话投影缓存里的 `subagentCatalog` | 子会话不会出现在侧边栏，父会话一删就再也没入口 |
+## Table of Contents
 
-删完之后，插件会**通过 DSH 自己的服务**收尾，缺一件就会出现「提示删了、行还在」：
+- [Use this package](#use-this-package)
+- [Understand the implementation](#understand-the-implementation)
+- [Further Exploration](#further-exploration)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
 
-1. 删文件（会话日志目录 + 投影缓存，含子会话）；
-2. `workspaceRegistry` 里取消归档、取消置顶、从每个工作区摘掉该 id；
-3. **把内存里还挂着的会话对象摘掉** —— 宿主列会话是「存储里的 + 内存里活的」取并集
-   （`dsh-session-query` 的 `listSessions` 会把 `ctx.sessions.list()` 全并进去），
-   不摘掉它，文件删干净了那一行也不会走；
-4. 通知页面重新拉一次会话列表（`sessions.refresh()`）。
+-----
 
-`<DSH_HOME>` 默认是 `%USERPROFILE%\.dsh`，可用环境变量 `DSH_HOME` 覆盖。
+<a id="use-this-package"></a>
+## Use this package
 
-## 目录结构
+Install the bundle into the `desktop` profile, then open the `…` menu of an archived session in the sidebar. The new row appears below Rename, Fork, and Unarchive, and only on archived rows; an ordinary session never offers it. Installing a package the profile has not loaded before takes effect in the running application through HMR; replacing the code of an already-loaded package needs a restart, as noted under [Known Limitations](#known-limitations-and-deferred-work).
 
-```
-DSH-True-Delete/
-├─ package.json          # 包清单：dsh.bundle.patch + dsh.client（平台 web）
-├─ cordis.patch.yml      # bundle 挂载声明：把自己作为一条 Loader entry 插进 profile
-├─ lib/
-│  ├─ index.js           # 宿主半边：路由 + 文件定位与删除 + 注册表收尾
-│  └─ client.js          # 页面半边：菜单行 + 二次确认弹窗（手写 bundle，无构建步骤）
-├─ scripts/
-│  └─ enable-bundle.mjs  # 把包名追加进 profile 的 dsh.profile.bundles
-├─ test/
-│  ├─ host.test.mjs      # 宿主半边：假 cordis ctx + 假 DSH_HOME 全链路断言
-│  └─ client.test.mjs    # 页面半边：模块请求 / 插槽注册 / 渲染路径断言
-├─ tools/
-│  ├─ asar-lib.mjs       # 极简 asar 读取器（无依赖）
-│  └─ asar.mjs           # 命令行：ls / cat / grep DSH 安装包里的文件
-├─ LICENSE               # MIT
-└─ README.md
-```
+### Install
 
-## 安装
-
-桌面端（profile `desktop`）推荐用自带的插件管理器：
-
-1. 打开 **设置 → 插件**（或侧边栏的插件页），选择「从本地目录安装」；
-2. 目录填这份包的绝对路径，例如 `G:\Code\DSH\DSH-True-Delete`；
-3. 安装完成后按提示重载 / 重启。
-
-命令行等价做法（宿主可以照常开着）：
+The in-app path is Settings → Plugins (or the sidebar's plugin page), choosing "install from a local directory" and pointing it at this folder. The equivalent command line installs the package and then selects it as a bundle — the CLI installs but does not select, so run both steps:
 
 ```bat
 "%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add link:G:\Code\DSH\DSH-True-Delete
 node G:\Code\DSH\DSH-True-Delete\scripts\enable-bundle.mjs desktop
 ```
 
-CLI 只装包，不会把包选进 profile 的 bundle 列表，所以第二行补上（插件管理器安装会自动做这一步）。
+A manual install is the same contract without pnpm: junction `node_modules\dsh-true-delete` at this directory, add it to `dependencies` and to `dsh.profile.bundles`, and restart. `scripts/enable-bundle.mjs` reads `$DSH_HOME` (default `%USERPROFILE%\.dsh`), removes the pre-rename entry when present, and writes only the bundle list.
 
-手工安装（等价，适合离线排查）：
+### What you see
 
-1. 把本目录放到任何位置；
-2. 在 `%USERPROFILE%\.dsh\profiles\desktop\node_modules\` 下建一个指向它的目录联接：
-   `mklink /J "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-true-delete" "G:\Code\DSH\DSH-True-Delete"`；
-3. `package.json` 的 `dependencies` 加 `"dsh-true-delete": "link:G:\\Code\\DSH\\DSH-True-Delete"`，
-   `dsh.profile.bundles` 追加 `"dsh-true-delete"`；
-4. 重启 DSH。
+The menu row opens a dialog populated by a read-only Host call, so its list of paths is a statement about this computer rather than a description of the feature. Confirming runs the deletion and reports what was removed; the archived row leaves the sidebar as soon as the page re-pulls the list. If nothing on disk belongs to the session any more, the dialog says so and confirming still clears the registry references — deletion is idempotent.
 
-## 测试
+### What it deletes
 
-无需 DSH 运行，全部离线：
+| Target | Path | Notes |
+|---|---|---|
+| Session transcript | `<DSH_HOME>/sessions/<encoded-cwd>/<sessionId>/` | The whole directory: `session[.vN].jsonl.zstd` generations plus `*.tmp` crash leftovers |
+| Projection cache | `<DSH_HOME>/storages/session_projcache/sessions/<sessionId>.json` | Derived title, stats, todos, and plan rows; a bad record's `.bak.*` siblings go too |
+| Subagent sessions | The two rows above, for each `childId` in the parent's `subagentCatalog` | Subagent sessions have no sidebar entry of their own, so the parent is their only way back |
+
+Deleting files is only half the work; the other half is what makes the row leave:
+
+1. Remove the files listed above, including nested subagent sessions.
+2. Clear the id from `workspaceRegistry` — the archive set, the pin set when pinned, and every workspace's member list.
+3. Release the live session object. The Host composes its session list from stored logs **and** live sessions, so an idle in-memory object keeps an already-deleted session listed.
+4. Ask the page to re-run `sessions.refresh()` so the list is rebuilt from the Host's current truth.
+
+A short sweep after steps 1–3 re-checks the same paths once, so a disposal flush or a projection-cache write-behind cannot quietly recreate a log directory behind the deletion.
+
+-----
+
+<a id="understand-the-implementation"></a>
+## Understand the implementation
+
+<details>
+<summary>Implementation internals — click to expand</summary>
+
+### Two halves, one package
+
+`package.json` declares both halves the Harness way: `dsh.bundle.patch` mounts the Host entry from `cordis.patch.yml`, and `dsh.client.platform: 'web'` makes `exports['./client']` a browser module that the module system serves and loads like any shipped plugin. The browser module id must equal the package name, because the loader normalizes `<id>/client` back to the bare id. Card text and artwork come from the manifest without activating the plugin: `locale/en.json` and `locale/zh.json` carry `meta.title` and `meta.description`, and the top-level `icon` names an in-package SVG, both listed under `exports` and `files`.
+
+### Host routes and the trust fence
+
+`lib/index.js` registers three exact routes on `webServer` inside one injected fiber, so they follow its lifetime:
+
+| Route | Purpose |
+|---|---|
+| `GET /dsh-true-delete/version` | Self-report: which generation of this file, and which capabilities, the running Host process actually loaded |
+| `GET /dsh-true-delete/status?sessionId=…` | Read-only plan: targets, sizes, archive state, live state, running work |
+| `POST /dsh-true-delete/delete` | The deletion and every cleanup step |
+
+Every route passes the same fence before its handler runs: a well-formed loopback `Host`, no `Sec-Fetch-Site: cross-site`, an `Origin` that matches the authority when present, and — for writes — a loopback origin. When the deployment's own `connection.requestRejection` is available it is delegated to as well. The fence fails closed: a malformed request or a throwing check is a rejection. Every path is additionally constrained by an `underHome()` check against `$DSH_HOME` and by a session-id allow-list, so a crafted id cannot aim the deletion at an unrelated file.
+
+### Locating a session's files
+
+Transcripts live under a project directory named after the session's canonical cwd, which the plugin does not need to know: it scans `<DSH_HOME>/sessions/*/<sessionId>` and matches the id exactly, never fuzzily. Subagent sessions come from the parent's projection-cache record (`record.rows.subagentCatalog.val.head.values[].childId`), read **before** anything is deleted, and the walk recurses to a bounded depth with a visited set. The plan therefore names real paths and real byte counts, which is what the dialog renders.
+
+### Why the row would otherwise survive
+
+`dsh-session-query`'s `listSessions` returns the union of persisted records and `ctx.sessions.list()`; a session archived while open stays in that store, so removing its files changes nothing the sidebar can see. The session store exposes removal only to the owner of `enter()`'s disposer, so the plugin reads the public `liveEntryFor` entry and calls `detachEntered` — the same teardown path a normal session close takes, including its `session/disposed` emission. `workspaceRegistry` exposes `list()`, not a `workspaces` accessor; detaching from a workspace that does not contain the id is an idempotent no-op, so the cleanup walks every workspace.
+
+### Client registration
+
+`lib/client.js` is a plain script that calls `window.__ModuleLoader__.load` with the package id. It registers one row into the `sidebar.workspaces.session.menu.item` list (order 500) and one overlay into `shell.overlay`. The row reads the archive set from the public `workspaces` client service and projects it through a memoized snapshot, because `useSyncExternalStore` requires a stable reference per data version; it returns `null` for unarchived rows. Only platform seed modules are required (`react`, `react/jsx-runtime`, `@deepseek-ai/dsh-client-store`, `@deepseek-ai/dsh-client-ui-primitives`), which is why the bundle needs no build step and no bundled dependencies.
+
+</details>
+
+-----
+
+<a id="further-exploration"></a>
+## Further Exploration
+
+Start with the plugin-authoring material the Harness ships, then the packages this plugin consumes. Everything below resolves from an installation; `node tools/asar.mjs cat <innerPath>` reads any of them out of `app.asar` (`DSH_APP_ASAR` overrides the archive path).
+
+- `@deepseek-ai/dsh-agent-preset/skills/cordis-plugin-development` — bundle manifest, Host export forms, Client manifest, and slot registration, plus the templates this plugin's shape follows.
+- `@deepseek-ai/dsh-client-modules/README.md` — how `dsh.client` becomes a served browser bundle, and why the browser module id is the package name.
+- `@deepseek-ai/dsh-client-ui-slots/README.md` — registration options, injected props, hooks, and declaration-aware `slots.inject`.
+- `@deepseek-ai/dsh-client-ui-workspace/README.md` — the sidebar row, its menu list, and the archive action this plugin mirrors.
+- `@deepseek-ai/dsh-workspace/README.md` — the registry whose archive, pin, and membership state the deletion clears, and its statement that session deletion is an absent capability.
+- `@deepseek-ai/dsh-session-persistence-jsonl/README.md` — the on-disk layout of a session transcript, which is what this plugin removes.
+
+-----
+
+<a id="model-experience"></a>
+## Model Experience
+
+None. The plugin registers no tools, commands, or prompt content, and it never appears in a model request: its Host half serves three loopback routes and its browser half renders a menu row and a dialog.
+
+#### KV Cache effect
+
+None; the plugin neither assembles nor sends a provider request. Deleting a session removes history the model will no longer be asked about — it does not invalidate a cache a running turn still reuses.
+
+## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
+- **Host-half changes need a process restart** — DSH's Host-side HMR watches no module roots, and re-creating the Loader entry re-imports through Node's ESM cache, so the same specifier keeps running the old module. Only a fresh process, or a package name the profile has not loaded, yields new Host code. The browser half hot-reloads on its own.
+- **Running work is refused, not forced** — a session still reporting activity through the `workspace/session-activity` waterfall is rejected, with the activity kinds named in the dialog. Archiving stops a session's work, so an archived row is normally inactive.
+- **Attachments and caches are deliberately out of scope** — `attachments/**` is content-addressed and deduplicated across sessions, and `cache/**` holds shared request images; neither carries per-session attribution on disk.
+- **A dangling id can outlive the deletion** — an id left in a workspace record by an interrupted run is filtered at read time and pruned by the next workspace mutation, so it is invisible rather than harmful.
+- **The legacy `session_projcache.json` is never edited** — its records belong to an older layout that the current storage re-seeds from only while no per-record documents exist.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+Both halves are verified offline, and a third check keeps this documentation honest; none of the three needs DSH running.
 
 ```bat
-node test\host.test.mjs      :: 或 npm test
-node test\client.test.mjs
+npm test                          :: docs + host + client, all offline
+node tools/check-docs.mjs         :: bilingual anchors, manifest, icon, card metadata
+node test\host.test.mjs           :: KEEP=1 keeps the temporary DSH_HOME for inspection
+node test\client.test.mjs         :: reads the real primitives build out of app.asar
 ```
 
-- **宿主半边**跑在系统临时目录里的假 `DSH_HOME` 上，覆盖：信任栅栏、清单（含二层子会话、坏记录备份、
-  不碰别人的会话与共享附件）、未归档拒绝、有活动拒绝、真删、注册表收尾、活会话释放、补刀、
-  幂等复检、`version` 自检。`KEEP=1` 可保留临时目录便于排查。
-- **页面半边**用假的 `window.__ModuleLoader__` 拆开 bundle：require 的模块必须都在平台种子表里，
-  用到的 `primitives.X` 必须在真实构建的导出名单里（直接从安装包的 `app.asar` 里现读，
-  可用环境变量 `DSH_APP_ASAR` 指定归档路径），并断言插槽注册形状、菜单项显隐与请求 URL 不丢 query。
+`tools/check-docs.mjs` enforces the package-reference shape this file follows: frontmatter, the canonical sections, one anchor per section, identical anchors across the bilingual pair, the manifest's `files`/`exports`/`icon` entries, and card metadata in both locale files.
 
-## 实现要点
+The Host suite drives `lib/index.js` inside a fake cordis context over a fake `$DSH_HOME` in the system temp directory: the trust fence, the plan (two levels of subagents, a bad `childId`, a `.bak` sibling, another session, shared attachments), refusal for unarchived and for active sessions, the deletion, registry cleanup, live-session release, the sweep catching a simulated write-behind, an idempotent re-read, and the version route. The Client suite evaluates the browser bundle against a fake `window.__ModuleLoader__`, asserts that every `require` is a platform seed and every `primitives.X` exists in the installed build, then renders both registrations and checks that the request URL keeps its query string.
 
-宿主半边只用公开服务：`webServer`（挂路由）、`workspaceRegistry`（清归档/置顶/工作区归属）、
-`sessionProjectionCache`（丢缓存记录）、`sessions`（释放内存里挂着的会话对象）、
-`connection`（宿主自带的信任栅栏）。任何一个缺失都只是降级并如实汇报，不会让宿主起不来。
+This package intentionally ships no `README.i18n.yaml`: that record is produced by the monorepo's `pnpm run verify-translation-pairing --write` and is meaningless outside it. The bilingual pair itself is kept, so both files carry the same section skeleton and anchors.
 
-三个路由，全部先过信任栅栏（回环 Host、同源 Origin、拒绝 `Sec-Fetch-Site: cross-site`，
-写操作必须是本机来源，并委托 `connection.requestRejection`，任何异常一律按拒绝处理）：
+On the styles: class names use the `dsh-true-delete__` prefix and the style tag is keyed by `data-plugin-css`, so a re-registration after a browser reload replaces rather than duplicates styles.
 
-| 路由 | 作用 |
-|---|---|
-| `GET /dsh-true-delete/version` | 自检：确认运行中的进程加载了哪一份代码、具备哪些能力 |
-| `GET /dsh-true-delete/status?sessionId=…` | 只查不改：返回将删除的清单、体积、归档状态、活动状态 |
-| `POST /dsh-true-delete/delete` | 执行删除与全部收尾 |
+</details>
 
-删除路径全部先过 `underHome()` 校验，`sessionId` 走白名单正则 —— 宁可不删，也不删错。
-
-页面半边不用打包器：DSH 的客户端模块加载器直接吃 `window.__ModuleLoader__.load`，
-而 `react` / `react/jsx-runtime` / `@deepseek-ai/dsh-client-store` / `@deepseek-ai/dsh-client-ui-primitives`
-都在平台种子模块表里，所以不需要构建步骤。
-
-## 边角情况
-
-- **还有正在运行的工作**：拒绝删除。判据用的是 DSH 自己那把尺子 —— 归档前问的
-  `workspace/session-activity` waterfall；对话框里会直接写明是哪一类活动。
-- **内存里还挂着一个闲置的会话对象**（归档后很常见）：允许删除；删完会释放它，再等 250ms 扫一遍，
-  把这段窗口里被 write-behind 写回来的日志/缓存补删一次，免得过一阵子又长出一行「幽灵会话」。
-- **未归档的会话**：拒绝删除（这个按钮就是给已归档内容用的）。
-- **子代理会话**：跟着父会话一起删；确认框里会标明「其中包含 N 个子代理会话」。
-- **会话日志有多代**（`session.jsonl.zstd` / `session.v3.jsonl.zstd` / …）：整个目录一起删。
-- **重复点击 / 残留**：删除是幂等的；如果磁盘上已经什么都没有，确认框会提示「没有找到属于该会话的本地文件」，
-  但点确认依然会把注册表里的悬空引用清掉。
-
-## 卸载
-
-从 `dsh.profile.bundles` 和 `dependencies` 里去掉 `dsh-true-delete`，删掉 `node_modules` 下的联接/目录，
-重启即可。删除动作本身不会在系统里留下其它痕迹（没有配置、没有后台进程、没有数据库）。
-
-## 开发笔记
-
-- **改了 `lib/client.js`（页面半边）**：不必重启。DSH 的 client-hmr 会轮询 bundle 的
-  mtime/ctime/size，命中后走 `clientModules.rebuilt()` 把新 bundle 推给页面。
-- **改了 `lib/index.js`（宿主半边）**：**必须重启 DSH**。实测结论（两条都验证过）：
-  1. 宿主侧 hmr 的 `root` 是空数组 —— 不监视任何模块文件；
-  2. 把插件从 `dsh.profile.bundles` 里摘掉再放回去，配置层确实会就地重载
-     （路由先 404、再回来），但 **Node 的 ESM 缓存 + loader 按 specifier 缓存包元数据**，
-     重新加载的还是旧模块；连把 `main` 换成一个全新文件名都不行。所以只有重启进程这一条路。
-- **怎么确认运行中的进程加载了哪一份代码**：`GET /dsh-true-delete/version`。
-  未鉴权时栅栏会先返回 **401**（说明这个路由存在 = 新代码已上线），路由不存在则是 **404**。
-- 排查 DSH 安装包内部实现：`node tools/asar.mjs ls|cat|grep`（归档默认 `G:\DSH\resources\app.asar`，
-  可用 `DSH_APP_ASAR` 覆盖）。
+**Runtime invariant:** the plugin deletes only paths that resolve inside `$DSH_HOME` and match a session-scoped name derived from the requested id; it never removes shared stores, never edits the workspace registry through the file, and reports a degraded step in the response rather than failing the whole deletion.

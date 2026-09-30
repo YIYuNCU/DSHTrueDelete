@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "True Delete",
+    "description": "Delete an archived session's local files: transcript, projection cache, and its subagent sessions, after a two-step confirmation."
+  }
+}
