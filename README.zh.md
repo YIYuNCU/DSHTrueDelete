@@ -58,7 +58,10 @@ git 安装之所以可行，是因为本包没有构建步骤、没有安装脚�
 
 ### Publish
 
-`npm publish` 会先通过 `prepublishOnly` 跑完三套检查。仓库还附带 `.github/workflows/publish.yml`：配置好 `NPM_TOKEN` 这个 secret 后，推一个 `v*` 标签（或在 Actions 页面手动触发）即可发布。
+`npm publish` 会先通过 `prepublishOnly` 跑完三套检查。实际发布走 `.github/workflows/publish.yml`：推一个 `v*` 标签（或在 Actions 页面手动触发），凭据二选一：
+
+- **可信发布（Trusted Publishing，推荐）** —— 在 npmjs.com 上为本仓库与 `publish.yml` 配置 Trusted Publisher，不需要任何 secret；npm 用工作流的 OIDC 换取短时凭据。npm 正在限制「绕过 2FA 的 token」用于直接发布，这条路才是长期可用的。
+- **`NPM_TOKEN`** —— 仓库 secret 里放一个 npm token。注意绕过 2FA 的 token 现在可能只是把发布**放进暂存区**而不是直接生效，见 [Dev Note](#dev-note)。
 
 本包声明了 DSH 的 peer 范围（`^0.2.0-rc.2`）—— 这正是 DSH 兼容性检查读取的清单字段。运行时版本不匹配时，宿主会带着版本诊断拒绝加载插件，而不是让它在运行期出错；显式豁免的方式是 `dsh plugin --profile desktop allow-version dsh-true-delete@<版本> --dsh-version <运行时> --accept-risk`。
 
@@ -176,6 +179,8 @@ node test\client.test.mjs         :: 会从 app.asar 里读取真实的 primitiv
 宿主套件把 `lib/index.js` 放进一个假的 cordis 上下文，跑在系统临时目录里的假 `$DSH_HOME` 上：信任栅栏、清单（两层子会话、一个非法 `childId`、一个 `.bak` 兄弟文件、另一个会话、共享附件）、未归档与有活动时的拒绝、真删、注册表收尾、活会话释放、补刀扫到模拟的 write-behind、幂等复检，以及 version 路由。页面套件用假的 `window.__ModuleLoader__` 拆开浏览器 bundle，断言每个 `require` 都是平台种子、每个 `primitives.X` 都存在于已安装的构建里，然后渲染两个注册项并检查请求 URL 没有丢 query。
 
 本包有意不提供 `README.i18n.yaml`：那份记录由 monorepo 的 `pnpm run verify-translation-pairing --write` 生成，脱离 monorepo 没有意义。双语文档本身保留，两个文件共用同一套小节骨架与锚点。
+
+凭据若是「绕过 2FA」的 token，发布可能不会直接生效，而是落进 npm 的**暂存区**。在暂存期间，包名解析到的是 `0.0.0-stage` 这个 stub —— 364 字节、只有 `stub: true` 和一句占位描述、**没有 `dsh` 字段** —— 于是 `dsh plugin --profile desktop add dsh-true-delete` 会报 “declares no dsh.bundle”；而且按包名安装会先把已有的安装卸掉，失败后就什么都不剩。用 `npx npm@11 stage list` 看待处理条目，`stage view <id>` 看详情，`stage approve <id>` 放行（npm 会在这里索要 token 绕过的那次 2FA 验证码），`stage reject <id>` 丢弃。从 git 仓库或本地目录安装完全不经过 registry。
 
 关于样式：类名统一用 `dsh-true-delete__` 前缀，样式标签以 `data-plugin-css` 作键，所以浏览器重载后重新注册是替换而不是叠加。
 

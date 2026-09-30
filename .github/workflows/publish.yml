@@ -6,12 +6,18 @@ name: publish
 #   1. 打标签推送：git tag v0.2.0 && git push origin v0.2.0
 #   2. 或在 Actions 页面手动 workflow_dispatch
 #
-# 前置条件：仓库 Secrets 里配置 NPM_TOKEN。
-#   - 在 https://www.npmjs.com/settings/<你的账号>/tokens 生成 **Automation** token（经典 token，
-#     不受 2FA 交互限制，适合 CI）；或生成带 Read and write 权限的 granular token。
-#   - 在 GitHub 仓库 Settings → Secrets and variables → Actions → New repository secret，
-#     名称填 NPM_TOKEN，值粘贴 token。
-#   缺少这个 secret 时，下面的 preflight 会直接给出中文提示，而不是抛出 ENEEDAUTH。
+# 凭据有两种，二选一，本工作流都支持：
+#
+#   A) 可信发布（Trusted Publishing，推荐）
+#      在 https://www.npmjs.com/package/dsh-true-delete/access 配置 Trusted Publisher：
+#      GitHub 仓库 YIYuNCU/DSHTrueDelete、workflow 文件名 publish.yml。
+#      之后不需要任何 secret —— npm 用 OIDC 换取短时凭据，并自动附带 provenance。
+#      npm 正在限制「绕过 2FA 的 token」用于直接发布，这是官方推荐方向。
+#
+#   B) NPM_TOKEN secret
+#      在 GitHub 仓库 Settings → Secrets and variables → Actions 增加 NPM_TOKEN。
+#      注意：npm 已开始限制 bypass-2FA token 的直接发布，这类 token 可能只把包放进
+#      暂存区（包名会解析到 0.0.0-stage 这个 stub），需要再用 `npm stage approve` 批准。
 #
 # 说明：DSH 自带「插件与运行时版本」兼容检查，会读取本包 peerDependencies 里
 #       @deepseek-ai/dsh 的范围；范围不匹配时宿主会拒绝加载，直到用户显式授予 exact-version 豁免。
@@ -24,7 +30,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance（生成 provenance 需要它，且仓库需为 public）
+  id-token: write # npm provenance / Trusted Publishing 都要它
 
 jobs:
   publish:
@@ -32,23 +38,28 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # 不用 setup-node 的 registry-url：它会写死一行 ${NODE_AUTH_TOKEN}，
+      # 在走可信发布（没有该 secret）时反而可能干扰 OIDC 流程。
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
-      # 预检 1：没有 token 就别走到发布步骤
-      - name: Check NPM_TOKEN
+      - name: Configure registry and credentials
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "::error title=缺少 NPM_TOKEN::仓库没有配置 NPM_TOKEN secret。请在 npmjs.com 生成 Automation token，再到 GitHub 仓库 Settings → Secrets and variables → Actions 新增名为 NPM_TOKEN 的 secret，然后重新运行本工作流。"
+          npm config set registry https://registry.npmjs.org/
+          if [ -n "$NODE_AUTH_TOKEN" ]; then
+            npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
+            echo "凭据：NPM_TOKEN（长度 ${#NODE_AUTH_TOKEN}）"
+          elif [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
+            echo "凭据：Trusted Publishing（OIDC，无 token）"
+          else
+            echo "::error title=缺少发布凭据::既没有 NPM_TOKEN secret，也没有 OIDC（id-token: write）。请配置可信发布，或添加 NPM_TOKEN。"
             exit 1
           fi
-          echo "NPM_TOKEN 已配置（长度 ${#NODE_AUTH_TOKEN}）"
 
-      # 预检 2：标签版本必须与清单一致，否则 npm 会以难懂的方式拒绝
+      # 标签版本必须与清单一致，否则 npm 会以难懂的方式拒绝
       - name: Check tag matches package version
         run: |
           node -e '
@@ -68,5 +79,3 @@ jobs:
 
       - name: Publish
         run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

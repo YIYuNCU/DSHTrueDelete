@@ -58,7 +58,10 @@ Installing from a git specifier works because the package has no build step and 
 
 ### Publish
 
-`npm publish` runs all three checks first through `prepublishOnly`. The repository also ships `.github/workflows/publish.yml`, which publishes on a `v*` tag (or by manual dispatch) once `NPM_TOKEN` is set as a repository secret.
+`npm publish` runs all three checks first through `prepublishOnly`. Publishing runs from `.github/workflows/publish.yml` on a `v*` tag (or by manual dispatch), with either credential:
+
+- **Trusted Publishing (recommended)** — configure the package's Trusted Publisher on npmjs.com for this repository and `publish.yml`; no secret is needed, and npm exchanges the workflow's OIDC token for short-lived credentials. npm is restricting tokens that bypass 2FA for direct publishing, so this is the direction that keeps working.
+- **`NPM_TOKEN`** — a repository secret holding an npm token. A token that bypasses 2FA may now only *stage* the publish instead of releasing it; see the note under [Dev Note](#dev-note).
 
 The package declares its DSH peer range (`^0.2.0-rc.2`) — the manifest field DSH's own compatibility check reads. On an incompatible runtime the profile refuses the plugin with a version diagnostic instead of letting it fail at runtime; `dsh plugin --profile desktop allow-version dsh-true-delete@<version> --dsh-version <runtime> --accept-risk` is the explicit override.
 
@@ -176,6 +179,8 @@ node test\client.test.mjs         :: reads the real primitives build out of app.
 The Host suite drives `lib/index.js` inside a fake cordis context over a fake `$DSH_HOME` in the system temp directory: the trust fence, the plan (two levels of subagents, a bad `childId`, a `.bak` sibling, another session, shared attachments), refusal for unarchived and for active sessions, the deletion, registry cleanup, live-session release, the sweep catching a simulated write-behind, an idempotent re-read, and the version route. The Client suite evaluates the browser bundle against a fake `window.__ModuleLoader__`, asserts that every `require` is a platform seed and every `primitives.X` exists in the installed build, then renders both registrations and checks that the request URL keeps its query string.
 
 This package intentionally ships no `README.i18n.yaml`: that record is produced by the monorepo's `pnpm run verify-translation-pairing --write` and is meaningless outside it. The bilingual pair itself is kept, so both files carry the same section skeleton and anchors.
+
+A publish whose credential bypasses 2FA may land in npm's **staged** area instead of being released. While it waits there, the package name resolves to a `0.0.0-stage` stub — a 364-byte package whose only fields are `stub: true` and a placeholder description, with no `dsh` field at all — so `dsh plugin --profile desktop add dsh-true-delete` fails with “declares no dsh.bundle”, and installing by name also removes whatever install was already there. `npx npm@11 stage list` shows the pending entries, `stage view <id>` inspects one, `stage approve <id>` releases it (this is where npm asks for the 2FA code the token bypassed), and `stage reject <id>` drops it. Installing from the git repository or a local folder never touches the registry.
 
 On the styles: class names use the `dsh-true-delete__` prefix and the style tag is keyed by `data-plugin-css`, so a re-registration after a browser reload replaces rather than duplicates styles.
 
