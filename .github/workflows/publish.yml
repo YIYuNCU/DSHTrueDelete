@@ -6,7 +6,13 @@ name: publish
 #   1. 打标签推送：git tag v0.2.0 && git push origin v0.2.0
 #   2. 或在 Actions 页面手动 workflow_dispatch
 #
-# 前置条件：仓库 Secrets 里配置 NPM_TOKEN（npm 的 Automation token，或带 bypass 2FA 的 granular token）。
+# 前置条件：仓库 Secrets 里配置 NPM_TOKEN。
+#   - 在 https://www.npmjs.com/settings/<你的账号>/tokens 生成 **Automation** token（经典 token，
+#     不受 2FA 交互限制，适合 CI）；或生成带 Read and write 权限的 granular token。
+#   - 在 GitHub 仓库 Settings → Secrets and variables → Actions → New repository secret，
+#     名称填 NPM_TOKEN，值粘贴 token。
+#   缺少这个 secret 时，下面的 preflight 会直接给出中文提示，而不是抛出 ENEEDAUTH。
+#
 # 说明：DSH 自带「插件与运行时版本」兼容检查，会读取本包 peerDependencies 里
 #       @deepseek-ai/dsh 的范围；范围不匹配时宿主会拒绝加载，直到用户显式授予 exact-version 豁免。
 
@@ -18,7 +24,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance
+  id-token: write # npm provenance（生成 provenance 需要它，且仓库需为 public）
 
 jobs:
   publish:
@@ -30,6 +36,30 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      # 预检 1：没有 token 就别走到发布步骤
+      - name: Check NPM_TOKEN
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "::error title=缺少 NPM_TOKEN::仓库没有配置 NPM_TOKEN secret。请在 npmjs.com 生成 Automation token，再到 GitHub 仓库 Settings → Secrets and variables → Actions 新增名为 NPM_TOKEN 的 secret，然后重新运行本工作流。"
+            exit 1
+          fi
+          echo "NPM_TOKEN 已配置（长度 ${#NODE_AUTH_TOKEN}）"
+
+      # 预检 2：标签版本必须与清单一致，否则 npm 会以难懂的方式拒绝
+      - name: Check tag matches package version
+        run: |
+          node -e '
+            const version = require("./package.json").version;
+            const ref = process.env.GITHUB_REF_NAME || "";
+            if (ref.startsWith("v") && ref.slice(1) !== version) {
+              console.error(`::error title=版本不一致::标签 ${ref} 与 package.json 的 ${version} 不一致`);
+              process.exit(1);
+            }
+            console.log(`version ${version} / ref ${ref || "(manual)"}`);
+          '
 
       # 三套离线检查：文档/清单、宿主半边、页面半边
       # （页面套件在拿不到 app.asar 时会自动跳过依赖安装包的断言）
