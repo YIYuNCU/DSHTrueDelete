@@ -14,9 +14,22 @@
   "main": "lib/index.js",
   "icon": "./icon.svg",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YIYuNCU/DSHTrueDelete.git"
+  },
+  "homepage": "https://github.com/YIYuNCU/DSHTrueDelete#readme",
+  "bugs": {
+    "url": "https://github.com/YIYuNCU/DSHTrueDelete/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
   "files": [
     "lib",
     "locale",
+    "scripts",
     "cordis.patch.yml",
     "icon.svg",
     "README.md",
@@ -24,9 +37,10 @@
   ],
   "scripts": {
     "test": "node tools/check-docs.mjs && node test/host.test.mjs && node test/client.test.mjs",
+    "test:docs": "node tools/check-docs.mjs",
     "test:host": "node test/host.test.mjs",
     "test:client": "node test/client.test.mjs",
-    "test:docs": "node tools/check-docs.mjs"
+    "prepublishOnly": "npm test"
   },
   "exports": {
     ".": "./lib/index.js",
@@ -45,6 +59,11 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "^4.0.2"
+    "@deepseek-ai/dsh": "^0.2.0-rc.2"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    }
   }
 }

@@ -29,14 +29,38 @@ Install the bundle into the `desktop` profile, then open the `…` menu of an ar
 
 ### Install
 
-The in-app path is Settings → Plugins (or the sidebar's plugin page), choosing "install from a local directory" and pointing it at this folder. The equivalent command line installs the package and then selects it as a bundle — the CLI installs but does not select, so run both steps:
+Two things must both happen: the package has to land in the profile's `node_modules`, and its name has to be selected in `dsh.profile.bundles`. The in-app plugin manager (Settings → Plugins) does both; the CLI installs only, so pair it with `scripts/enable-bundle.mjs`.
+
+**By package name** — the ordinary path, available once the package is published:
+
+```bat
+"%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-true-delete
+node "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-true-delete\scripts\enable-bundle.mjs" desktop
+```
+
+**From the git repository** — the same shape before a release, and the only name-like install that needs no registry:
+
+```bat
+"%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:YIYuNCU/DSHTrueDelete
+node "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-true-delete\scripts\enable-bundle.mjs" desktop
+```
+
+**From a local folder** — development and offline use:
 
 ```bat
 "%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add link:G:\Code\DSH\DSH-True-Delete
 node G:\Code\DSH\DSH-True-Delete\scripts\enable-bundle.mjs desktop
 ```
 
-A manual install is the same contract without pnpm: junction `node_modules\dsh-true-delete` at this directory, add it to `dependencies` and to `dsh.profile.bundles`, and restart. `scripts/enable-bundle.mjs` reads `$DSH_HOME` (default `%USERPROFILE%\.dsh`), removes the pre-rename entry when present, and writes only the bundle list.
+**Manually** — the same contract without pnpm: junction `node_modules\dsh-true-delete` at a checkout, add it to `dependencies` and to `dsh.profile.bundles`, and restart. `scripts/enable-bundle.mjs` reads `$DSH_HOME` (default `%USERPROFILE%\.dsh`), removes the pre-rename entry when present, and writes only the bundle list; it ships inside the package, so the `node …` commands above work for a registry install too.
+
+Installing from a git specifier works because the package has no build step and no install scripts: the repository root *is* the published package.
+
+### Publish
+
+`npm publish` runs all three checks first through `prepublishOnly`. The repository also ships `.github/workflows/publish.yml`, which publishes on a `v*` tag (or by manual dispatch) once `NPM_TOKEN` is set as a repository secret.
+
+The package declares its DSH peer range (`^0.2.0-rc.2`) — the manifest field DSH's own compatibility check reads. On an incompatible runtime the profile refuses the plugin with a version diagnostic instead of letting it fail at runtime; `dsh plugin --profile desktop allow-version dsh-true-delete@<version> --dsh-version <runtime> --accept-risk` is the explicit override.
 
 ### What you see
 

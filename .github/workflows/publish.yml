@@ -1,0 +1,42 @@
+name: publish
+
+# 发布到 npm，让 `dsh plugin --profile desktop add dsh-true-delete` 这类按包名安装可用。
+#
+# 触发方式：
+#   1. 打标签推送：git tag v0.2.0 && git push origin v0.2.0
+#   2. 或在 Actions 页面手动 workflow_dispatch
+#
+# 前置条件：仓库 Secrets 里配置 NPM_TOKEN（npm 的 Automation token，或带 bypass 2FA 的 granular token）。
+# 说明：DSH 自带「插件与运行时版本」兼容检查，会读取本包 peerDependencies 里
+#       @deepseek-ai/dsh 的范围；范围不匹配时宿主会拒绝加载，直到用户显式授予 exact-version 豁免。
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # 三套离线检查：文档/清单、宿主半边、页面半边
+      # （页面套件在拿不到 app.asar 时会自动跳过依赖安装包的断言）
+      - name: Test
+        run: npm test
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

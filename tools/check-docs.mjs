@@ -32,9 +32,21 @@ check(pkg.exports?.['./client'] === './lib/client.js', 'package.json: exports[".
 check(pkg.exports?.['./package.json'] === './package.json', 'package.json: 需要导出 ./package.json')
 check(typeof pkg.icon === 'string', 'package.json: 缺少 icon（插件卡片图标）')
 check(pkg.exports?.['./locale/*.json'] === './locale/*.json', 'package.json: 需要导出 ./locale/*.json')
-for (const required of ['lib', 'locale', 'cordis.patch.yml', 'icon.svg', 'README.md', 'README.zh.md']) {
+for (const required of ['lib', 'locale', 'scripts', 'cordis.patch.yml', 'icon.svg', 'README.md', 'README.zh.md']) {
   check(Array.isArray(pkg.files) && pkg.files.includes(required), `package.json: files 缺少 ${required}`)
 }
+
+// --- 发布元数据（按包名安装的前提）---
+check(typeof pkg.license === 'string' && pkg.license.length > 0, 'package.json: 缺少 license')
+check(/github\.com/.test(pkg.repository?.url ?? ''), 'package.json: repository.url 应指向 GitHub 仓库')
+check(pkg.publishConfig?.access === 'public', 'package.json: publishConfig.access 应为 public')
+check(
+  typeof pkg.peerDependencies?.['@deepseek-ai/dsh'] === 'string',
+  'package.json: 需要声明 @deepseek-ai/dsh 的 peer 范围（DSH 兼容性检查读的就是它）',
+)
+check(typeof pkg.scripts?.prepublishOnly === 'string', 'package.json: 缺少 prepublishOnly（发布前应跑检查）')
+check(fs.existsSync(path.join(ROOT, '.github/workflows/publish.yml')), '缺少 .github/workflows/publish.yml')
+check(fs.existsSync(path.join(ROOT, 'scripts/enable-bundle.mjs')), '缺少 scripts/enable-bundle.mjs')
 
 // --- 图标 ---
 const icon = read('icon.svg')

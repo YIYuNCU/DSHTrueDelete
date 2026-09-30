@@ -29,14 +29,38 @@ kind: "package-reference"
 
 ### Install
 
-界面里的路径是 **设置 → 插件**（或侧边栏的插件页），选「从本地目录安装」，指向本目录。等价的命令行装包之后再把它选进 bundle 列表 —— CLI 只负责安装，不负责选择，所以两步都要跑：
+两件事必须都发生：包要落进 profile 的 `node_modules`，包名要被选进 `dsh.profile.bundles`。界面里的 **设置 → 插件** 会一次做完这两步；CLI 只负责安装，所以要配上 `scripts/enable-bundle.mjs`。
+
+**按包名安装** —— 常规路径，需要包已发布到 registry：
+
+```bat
+"%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add dsh-true-delete
+node "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-true-delete\scripts\enable-bundle.mjs" desktop
+```
+
+**从 git 仓库安装** —— 发布之前的同一形态，也是唯一不需要 registry 的"名字式"安装：
+
+```bat
+"%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add github:YIYuNCU/DSHTrueDelete
+node "%USERPROFILE%\.dsh\profiles\desktop\node_modules\dsh-true-delete\scripts\enable-bundle.mjs" desktop
+```
+
+**从本地目录安装** —— 开发与离线使用：
 
 ```bat
 "%ProgramFiles%\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add link:G:\Code\DSH\DSH-True-Delete
 node G:\Code\DSH\DSH-True-Delete\scripts\enable-bundle.mjs desktop
 ```
 
-不用 pnpm 的手工安装是同一份契约：把 `node_modules\dsh-true-delete` 目录联接指向本目录，加进 `dependencies` 与 `dsh.profile.bundles`，然后重启。`scripts/enable-bundle.mjs` 读取 `$DSH_HOME`（默认 `%USERPROFILE%\.dsh`），会顺手清掉改名前的旧条目，且只改 bundle 列表这一处。
+**手工安装** —— 不用 pnpm 的同一份契约：把 `node_modules\dsh-true-delete` 目录联接指向一份检出，加进 `dependencies` 与 `dsh.profile.bundles`，然后重启。`scripts/enable-bundle.mjs` 读取 `$DSH_HOME`（默认 `%USERPROFILE%\.dsh`），会顺手清掉改名前的旧条目，且只改 bundle 列表这一处；它随包发布，所以上面两条 `node …` 在按包名安装后同样可用。
+
+git 安装之所以可行，是因为本包没有构建步骤、没有安装脚本：仓库根目录就是发布出去的包。
+
+### Publish
+
+`npm publish` 会先通过 `prepublishOnly` 跑完三套检查。仓库还附带 `.github/workflows/publish.yml`：配置好 `NPM_TOKEN` 这个 secret 后，推一个 `v*` 标签（或在 Actions 页面手动触发）即可发布。
+
+本包声明了 DSH 的 peer 范围（`^0.2.0-rc.2`）—— 这正是 DSH 兼容性检查读取的清单字段。运行时版本不匹配时，宿主会带着版本诊断拒绝加载插件，而不是让它在运行期出错；显式豁免的方式是 `dsh plugin --profile desktop allow-version dsh-true-delete@<版本> --dsh-version <运行时> --accept-risk`。
 
 ### What you see
 
