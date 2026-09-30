@@ -58,7 +58,7 @@ git 安装之所以可行，是因为本包没有构建步骤、没有安装脚�
 
 ### Publish
 
-`npm publish` 会先通过 `prepublishOnly` 跑完三套检查。仓库还附带 `.github/workflows/publish.yml`：配置好 `NPM_TOKEN` 这个 secret 后，推一个 `v*` 标签（或在 Actions 页面手动触发）即可发布。
+`npm publish` 会先通过 `prepublishOnly` 跑完三套检查。仓库还附带 `.github/workflows/publish.yml`：推 `v*` 标签（或在 Actions 页面手动触发）会优先走 npm Trusted Publishing（OIDC）。如果你的 npm 侧尚未启用 trusted publishing，再配置 `NPM_TOKEN` 这个 secret，工作流会自动回退到 token 鉴权发布。
 
 本包声明了 DSH 的 peer 范围（`^0.2.0-rc.2`）—— 这正是 DSH 兼容性检查读取的清单字段。运行时版本不匹配时，宿主会带着版本诊断拒绝加载插件，而不是让它在运行期出错；显式豁免的方式是 `dsh plugin --profile desktop allow-version dsh-true-delete@<版本> --dsh-version <运行时> --accept-risk`。
 

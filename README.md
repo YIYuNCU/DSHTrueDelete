@@ -58,7 +58,7 @@ Installing from a git specifier works because the package has no build step and 
 
 ### Publish
 
-`npm publish` runs all three checks first through `prepublishOnly`. The repository also ships `.github/workflows/publish.yml`, which publishes on a `v*` tag (or by manual dispatch) once `NPM_TOKEN` is set as a repository secret.
+`npm publish` runs all three checks first through `prepublishOnly`. The repository also ships `.github/workflows/publish.yml`, which publishes on a `v*` tag (or by manual dispatch) via npm Trusted Publishing (OIDC). If your npm setup has not enabled trusted publishing yet, set `NPM_TOKEN` as a repository secret and the same workflow falls back to token auth.
 
 The package declares its DSH peer range (`^0.2.0-rc.2`) — the manifest field DSH's own compatibility check reads. On an incompatible runtime the profile refuses the plugin with a version diagnostic instead of letting it fail at runtime; `dsh plugin --profile desktop allow-version dsh-true-delete@<version> --dsh-version <runtime> --accept-risk` is the explicit override.
 
