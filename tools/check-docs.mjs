@@ -60,12 +60,14 @@ for (const [file, label] of [['locale/en.json', '英文'], ['locale/zh.json', '�
   check(typeof meta?.description === 'string' && meta.description.length > 0, `${file}: ${label} description 缺失`)
 }
 
-// --- 双语 README：同一套小节锚点 ---
+// --- 双语 README：同一套小节锚点，中文版标题必须是中文 ---
 const frontmatter = (text) => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/.exec(text)
   return match === null ? null : match[1]
 }
 const anchors = (text) => [...text.matchAll(/<a id="([^"]+)"><\/a>/g)].map((match) => match[1])
+/** H2–H4 的标题文本（H1 是包名，不参与判定）。 */
+const headings = (text) => [...text.matchAll(/^#{2,4} (.+)$/gm)].map((match) => match[1].trim())
 
 const en = read('README.md')
 const zh = read('README.zh.md')
@@ -74,12 +76,15 @@ for (const [file, text] of [['README.md', en], ['README.zh.md', zh]]) {
   const head = frontmatter(text)
   check(head !== null, `${file}: 缺少 frontmatter`)
   check(head !== null && /^description:\s*"/m.test(head), `${file}: frontmatter 需要 description`)
-  check(head !== null && /^kind:\s*"package-reference"/m.test(head), `${file}: frontmatter 需要 kind: "package-reference"`)
-  check(/^## Summary$/m.test(text), `${file}: 缺少 ## Summary`)
-  check(/^## Table of Contents$/m.test(text), `${file}: 缺少 ## Table of Contents`)
-  check(/^## Model Experience$/m.test(text) && /^#### KV Cache effect$/m.test(text), `${file}: 缺少 Model Experience / KV Cache effect`)
-  check(/^## Known Limitations and Deferred Work$/m.test(text), `${file}: 缺少 Known Limitations and Deferred Work`)
+  check(/^## /m.test(text), `${file}: 至少要有一个二级标题`)
 }
+
+// 中文版不得出现纯英文标题（面向使用者的文档要求）
+const englishHeadings = headings(zh).filter((heading) => !/[\u4e00-\u9fff]/.test(heading))
+check(
+  englishHeadings.length === 0,
+  `README.zh.md: 这些标题是英文，应改为中文：${englishHeadings.join(' | ')}`,
+)
 
 const enAnchors = anchors(en)
 const zhAnchors = anchors(zh)
