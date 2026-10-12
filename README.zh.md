@@ -97,7 +97,7 @@ node G:\Code\DSH\DSH-True-Delete\scripts\enable-bundle.mjs desktop
 <a id="troubleshooting"></a>
 ## 常见问题
 
-**按包名安装时报 “declares no dsh.bundle”。** 此刻 registry 把这个名字解析成了占位包，而不是真包 —— 首次发布停在 npm 的暂存区时就会这样：名字指向一个 364 字节、没有任何 `dsh` 字段的 stub。改用 git 仓库或本机目录安装，或者用 `npx npm@11 stage list` 找到条目、`npx npm@11 stage approve <id>` 把它放行。注意：按包名安装失败时，它已经先把原有的安装卸掉了，所以之后要重新装一次。
+**按包名安装时报 “declares no dsh.bundle”。** 此刻 registry 把这个名字解析成了占位包，而不是真包 —— 发布停在 npm 的暂存区时就会这样：名字指向一个 364 字节、没有任何 `dsh` 字段的 stub。改用 git 仓库或本机目录安装；要清掉这个条目，可以用 `npx npm@11 stage list` 找到它再 `npx npm@11 stage approve <id>` 放行，或者 `stage reject <id>` 丢弃后重新发布。注意：按包名安装失败时，它已经先把原有的安装卸掉了，所以之后要重新装一次。暂存只影响用「绕过 2FA 的 token」发布的那一次 —— 现在工作流走可信发布，是直接进 registry 的。
 
 **菜单里没有这一项。** 确认 `dsh-true-delete` 在 `dsh.profile.bundles` 里（把 `enable-bundle.mjs` 那条命令再跑一次），然后重启 DSH。另外这一项只出现在已归档的行上。
 
@@ -165,10 +165,11 @@ node test\client.test.mjs         :: 会从 app.asar 里读取真实的 primitiv
 
 ### 发布
 
-`npm publish` 会先通过 `prepublishOnly` 跑完三套检查。实际发布走 `.github/workflows/publish.yml`：推一个 `v*` 标签或在 Actions 页面手动触发，凭据二选一：
+发布使用 npm 的 **Trusted Publishing（OIDC 可信发布）**：整条流水线里没有任何 token、也不需要仓库 secret。`npm publish` 会先通过 `prepublishOnly` 跑完三套检查，实际发布走 `.github/workflows/publish.yml`：推一个 `v*` 标签或在 Actions 页面手动触发。
 
-- **可信发布（Trusted Publishing，推荐）** —— 在 npmjs.com 上为本仓库与 `publish.yml` 配置 Trusted Publisher，不需要任何 secret；npm 用工作流的 OIDC 换取短时凭据。npm 正在限制「绕过 2FA 的 token」用于直接发布，这条路才长期可用。
-- **`NPM_TOKEN`** —— 仓库 secret 里放一个 npm token。绕过 2FA 的 token 现在可能只是把发布**放进暂存区**；在暂存期间名字解析到 `0.0.0-stage` 那个 stub（见「常见问题」），按包名安装会一直失败，直到该条目被放行或丢弃。
+npmjs.com 上的一次性配置：打开 `dsh-true-delete` → **Settings → Trusted Publisher**，选择 **GitHub Actions**，填入仓库属主（`YIYuNCU`）、仓库名（`DSHTrueDelete`）与工作流文件名（`publish.yml`），environment 留空。配好之后把 `NPM_TOKEN` 这个 secret 删掉 —— 已经没有任何东西读它了。
+
+工作流会申请 OIDC token（`id-token: write`），并把 runner 自带的 npm 升到 11.5.1 或更高 —— 更老的 npm 不支持可信发布，会以难以理解的 E404/E401 失败。随后 npm 用这个 token 换取短时凭据，并自动附带 provenance。npm 正在限制「绕过 2FA 的 token」用于直接发布，那种方式只会把发布**放进暂存区**，也就是「常见问题」里描述的那个 stub。
 
 ### 文档约定
 

@@ -1,10 +1,10 @@
 /**
  * 文档与清单一致性检查。
  *
- * 对齐 DSH 仓库的 package-reference 约定（见安装包里的
- * `dsh/node_modules/@deepseek-ai/dsh-agent-preset/skills/cordis-plugin-development/`）：
- * README.md 是英文、README.zh.md 是中文，两者共用同一套小节锚点；
- * 卡片文案与图标来自清单，不激活插件也能读。
+ * 面向使用者的双语文档：README.md 是英文、README.zh.md 是中文，
+ * 中文版标题必须含中文，两份文档共用同一套小节锚点；
+ * 同时校验可以按包名安装所需的清单字段、卡片文案与图标，
+ * 以及发布流程只依赖 npm 的 OIDC 可信发布。
  *
  *   node tools/check-docs.mjs
  */
@@ -47,6 +47,19 @@ check(
 check(typeof pkg.scripts?.prepublishOnly === 'string', 'package.json: 缺少 prepublishOnly（发布前应跑检查）')
 check(fs.existsSync(path.join(ROOT, '.github/workflows/publish.yml')), '缺少 .github/workflows/publish.yml')
 check(fs.existsSync(path.join(ROOT, 'scripts/enable-bundle.mjs')), '缺少 scripts/enable-bundle.mjs')
+
+// --- 发布方式：只走 npm 的 OIDC 可信发布，不允许再出现 token/secret ---
+// 注释行里的说明不算代码，先去掉再判定。
+const workflow = read('.github/workflows/publish.yml').replace(/^\s*#.*$/gm, '')
+check(/id-token:\s*write/.test(workflow), 'publish.yml: 需要 permissions.id-token: write —— 可信发布的前提')
+check(
+  !/NPM_TOKEN|NODE_AUTH_TOKEN|secrets\./.test(workflow),
+  'publish.yml: 发布必须只依赖 OIDC 可信发布，不应出现 token 或 secret 引用',
+)
+check(
+  /npm install -g npm@latest/.test(workflow),
+  'publish.yml: 需要升级 npm —— 可信发布要求 npm >= 11.5.1，runner 自带的 10.x 不支持',
+)
 
 // --- 图标 ---
 const icon = read('icon.svg')

@@ -97,7 +97,7 @@ After the files are gone the plugin finishes four cleanup steps: it clears the i
 <a id="troubleshooting"></a>
 ## Troubleshooting
 
-**“declares no dsh.bundle” while installing by name.** The registry currently resolves the name to a placeholder instead of the real package — this happens while a first publish waits in npm's staged area, where the name points at a 364-byte stub with no `dsh` field. Install from the git repository or a local folder instead, or release the staged version with `npx npm@11 stage list` and `npx npm@11 stage approve <id>`. Note that a failed install by name also removes whatever installation was already there, so reinstall afterwards.
+**“declares no dsh.bundle” while installing by name.** The registry currently resolves the name to a placeholder instead of the real package — this happens while a release waits in npm's staged area, where the name points at a 364-byte stub with no `dsh` field. Install from the git repository or a local folder instead; to clear the entry, release it with `npx npm@11 stage list` plus `npx npm@11 stage approve <id>`, or drop it with `stage reject <id>` and publish again. Note that a failed install by name also removes whatever installation was already there, so reinstall afterwards. Staging only affects a release published with a 2FA-bypassing token — the workflow now publishes through Trusted Publishing and goes straight to the registry.
 
 **The menu row is missing.** Check that `dsh-true-delete` is listed in `dsh.profile.bundles` (run the `enable-bundle.mjs` command again), then restart DSH. The row only appears on archived rows.
 
@@ -165,10 +165,11 @@ The Host suite drives `lib/index.js` in a fake cordis context over a fake `$DSH_
 
 ### Publishing
 
-`npm publish` runs the three suites through `prepublishOnly`. Releases go through `.github/workflows/publish.yml` on a `v*` tag or by manual dispatch, with either credential:
+Releases use npm's **Trusted Publishing** (OIDC): there is no token and no repository secret anywhere in the pipeline. `npm publish` runs the three suites first through `prepublishOnly`, and the release itself runs from `.github/workflows/publish.yml` on a `v*` tag or by manual dispatch.
 
-- **Trusted Publishing (recommended)** — configure the package's Trusted Publisher on npmjs.com for this repository and `publish.yml`; no secret is needed and npm exchanges the workflow's OIDC token for short-lived credentials. npm is restricting tokens that bypass 2FA for direct publishing, so this is the path that keeps working.
-- **`NPM_TOKEN`** — a repository secret. A token that bypasses 2FA may only *stage* the publish; while it waits, the name resolves to the `0.0.0-stage` stub described under Troubleshooting, and installing by name fails until the stage is approved or rejected.
+One-time setup on npmjs.com: open `dsh-true-delete` → **Settings → Trusted Publisher**, choose **GitHub Actions**, and fill in the repository owner (`YIYuNCU`), the repository (`DSHTrueDelete`), and the workflow filename (`publish.yml`), leaving the environment empty. Afterwards delete any `NPM_TOKEN` secret — nothing reads it any more.
+
+The workflow asks for an OIDC token (`id-token: write`) and upgrades the runner's npm to 11.5.1 or newer, because older npm cannot do trusted publishing and fails with a confusing E404/E401. npm then exchanges that token for short-lived credentials and attaches provenance. Tokens that bypass 2FA are being restricted for direct publishing; a release published that way only *stages*, producing the stub described under Troubleshooting.
 
 ### Documentation conventions
 

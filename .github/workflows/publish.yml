@@ -2,22 +2,16 @@ name: publish
 
 # 发布到 npm，让 `dsh plugin --profile desktop add dsh-true-delete` 这类按包名安装可用。
 #
-# 触发方式：
-#   1. 打标签推送：git tag v0.2.0 && git push origin v0.2.0
-#   2. 或在 Actions 页面手动 workflow_dispatch
+# 发布方式：npm 的 Trusted Publishing（OIDC 可信发布）—— 不使用任何 token 或 secret。
+#   1. 在 https://www.npmjs.com/package/dsh-true-delete 的 Settings → Trusted Publisher
+#      填入：GitHub Actions / YIYuNCU / DSHTrueDelete / publish.yml（environment 留空）
+#   2. 仓库里不需要 NPM_TOKEN；如仍有该 secret，删掉即可
+#   3. 打标签推送：git tag v0.2.0 && git push origin v0.2.0（或在 Actions 页面手动触发）
 #
-# 凭据有两种，二选一，本工作流都支持：
-#
-#   A) 可信发布（Trusted Publishing，推荐）
-#      在 https://www.npmjs.com/package/dsh-true-delete/access 配置 Trusted Publisher：
-#      GitHub 仓库 YIYuNCU/DSHTrueDelete、workflow 文件名 publish.yml。
-#      之后不需要任何 secret —— npm 用 OIDC 换取短时凭据，并自动附带 provenance。
-#      npm 正在限制「绕过 2FA 的 token」用于直接发布，这是官方推荐方向。
-#
-#   B) NPM_TOKEN secret
-#      在 GitHub 仓库 Settings → Secrets and variables → Actions 增加 NPM_TOKEN。
-#      注意：npm 已开始限制 bypass-2FA token 的直接发布，这类 token 可能只把包放进
-#      暂存区（包名会解析到 0.0.0-stage 这个 stub），需要再用 `npm stage approve` 批准。
+# 为什么不再用 token：npm 正在限制「绕过 2FA 的 token」用于直接发布；这类 token 可能只把
+# 包放进暂存区（包名会解析到 0.0.0-stage 这个 stub），必须再手动批准。OIDC 没有这个问题，
+# 且会自动附带 provenance。若历史上留下过暂存条目，先清掉再发：
+#   npx npm@11 stage list   →   npx npm@11 stage reject <stage-id>
 #
 # 说明：DSH 自带「插件与运行时版本」兼容检查，会读取本包 peerDependencies 里
 #       @deepseek-ai/dsh 的范围；范围不匹配时宿主会拒绝加载，直到用户显式授予 exact-version 豁免。
@@ -30,7 +24,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # npm provenance / Trusted Publishing 都要它
+  id-token: write # Trusted Publishing 与 provenance 都依赖它
 
 jobs:
   publish:
@@ -38,26 +32,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # 不用 setup-node 的 registry-url：它会写死一行 ${NODE_AUTH_TOKEN}，
-      # 在走可信发布（没有该 secret）时反而可能干扰 OIDC 流程。
+      # 不传 registry-url：那会在 .npmrc 里写一行 ${NODE_AUTH_TOKEN}，
+      # 而明确设置 registry 就足够，凭据完全交给 OIDC。
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Configure registry and credentials
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # 可信发布要求 npm >= 11.5.1，runner 自带的 10.x 会以 E404/E401 这类
+      # 难懂的方式失败，所以这里先升级并断言版本。
+      - name: Upgrade npm for Trusted Publishing
+        run: |
+          npm install -g npm@latest
+          version=$(npm --version)
+          echo "npm $version"
+          node -e '
+            const need = [11, 5, 1];
+            const got = String(process.argv[1] || "0.0.0").split("-")[0].split(".").map(Number);
+            let ok = false;
+            for (let i = 0; i < need.length; i += 1) {
+              if (got[i] > need[i]) { ok = true; break; }
+              if (got[i] < need[i]) break;
+              if (i === need.length - 1) ok = true;
+            }
+            if (!ok) {
+              console.error(`::error title=npm 版本过低::可信发布需要 npm >= ${need.join(".")}，当前 ${process.argv[1]}`);
+              process.exit(1);
+            }
+            console.log(`npm ${process.argv[1]} 满足 >= ${need.join(".")}`);
+          ' "$version"
+
+      - name: Configure registry and verify OIDC
         run: |
           npm config set registry https://registry.npmjs.org/
-          if [ -n "$NODE_AUTH_TOKEN" ]; then
-            npm config set //registry.npmjs.org/:_authToken "$NODE_AUTH_TOKEN"
-            echo "凭据：NPM_TOKEN（长度 ${#NODE_AUTH_TOKEN}）"
-          elif [ -n "$ACTIONS_ID_TOKEN_REQUEST_URL" ]; then
-            echo "凭据：Trusted Publishing（OIDC，无 token）"
-          else
-            echo "::error title=缺少发布凭据::既没有 NPM_TOKEN secret，也没有 OIDC（id-token: write）。请配置可信发布，或添加 NPM_TOKEN。"
+          if [ -z "$ACTIONS_ID_TOKEN_REQUEST_URL" ] || [ -z "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" ]; then
+            echo "::error title=没有 OIDC 凭据::工作流需要 permissions: id-token: write，且 npm 只在 GitHub Actions 里做可信发布。"
             exit 1
           fi
+          echo "凭据：Trusted Publishing（OIDC，无 token）"
 
       # 标签版本必须与清单一致，否则 npm 会以难懂的方式拒绝
       - name: Check tag matches package version
@@ -78,4 +89,4 @@ jobs:
         run: npm test
 
       - name: Publish
-        run: npm publish --provenance --access public
+        run: npm publish --access public --provenance
