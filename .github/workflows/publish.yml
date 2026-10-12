@@ -6,7 +6,8 @@ name: publish
 #   1. 在 https://www.npmjs.com/package/dsh-true-delete 的 Settings → Trusted Publisher
 #      填入：GitHub Actions / YIYuNCU / DSHTrueDelete / publish.yml（environment 留空）
 #   2. 仓库里不需要 NPM_TOKEN；如仍有该 secret，删掉即可
-#   3. 打标签推送：git tag v0.2.0 && git push origin v0.2.0（或在 Actions 页面手动触发）
+#   3. 打标签推送：git tag v0.2.1 && git push origin v0.2.1（或在 Actions 页面手动触发）
+#      标签版本必须与 package.json 的 version 一致，否则工作流会在版本校验那一步停下。
 #
 # 为什么不再用 token：npm 正在限制「绕过 2FA 的 token」用于直接发布；这类 token 可能只把
 # 包放进暂存区（包名会解析到 0.0.0-stage 这个 stub），必须再手动批准。OIDC 没有这个问题，

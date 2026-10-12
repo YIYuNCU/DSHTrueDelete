@@ -1,6 +1,6 @@
 {
   "name": "dsh-true-delete",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "DSH plugin: delete an archived session's local files — transcript, projection cache, and its subagent sessions — after a two-step confirmation.",
   "keywords": [
     "dsh",
